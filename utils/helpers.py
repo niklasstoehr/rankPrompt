@@ -1,7 +1,35 @@
 #utils: helper functions such as converting pairwise to global rankings
+import numpy as np
+from scipy import stats
+from sklearn.metrics import accuracy_score
+
+from collections import defaultdict
+import torch, dotenv, typing, re, itertools, math
+from transformers import AutoTokenizer, AutoModelForCausalLM, GPT2LMHeadModel, GPT2Tokenizer, DebertaTokenizer, DebertaModel, DebertaForMaskedLM
+
+def load_model(model_name:str="gpt2", device:str="cpu"):
+    """
+    load model and put to device
+    """
+    if model_name == "gpt2":
+        tokenizer = GPT2Tokenizer.from_pretrained("gpt2", padding_side='left')
+        model = GPT2LMHeadModel.from_pretrained("gpt2").to(device)
+        tokenizer.pad_token = tokenizer.eos_token
+    
+    elif model_name == "deberta":
+        tokenizer = DebertaTokenizer.from_pretrained("microsoft/deberta-base")
+        model = DebertaModel.from_pretrained("microsoft/deberta-base").to(device)
+    
+    elif model_name == "mpt-7b":
+        tokenizer = AutoTokenizer.from_pretrained('EleutherAI/gpt-neox-20b', padding_side='left')
+        model = AutoModelForCausalLM.from_pretrained('mosaicml/mpt-7b', torch_dtype=torch.float32, trust_remote_code=True).to(device)
+    return model, tokenizer
 
 
 def get_pairings(x, pair_type:str="perm", n_tuple:int=2, get_argmax=False):
+    """
+    create permutation or combination pairings
+    """
     if pair_type == "comb":
         x = list(itertools.combinations(x, n_tuple))
     if pair_type == "perm":
@@ -12,6 +40,9 @@ def get_pairings(x, pair_type:str="perm", n_tuple:int=2, get_argmax=False):
 
 
 def pairwise_to_ranks(idx_list, a_b_list, float_list=None, tie=False):
+    """
+    aggregate pairwise predictions into ranks, simply by summing all wins
+    """
     tie=False
     ent_wins = defaultdict(int)  ## dict to store wins
     ent_scores = defaultdict(float)
@@ -42,19 +73,13 @@ def pairwise_to_ranks(idx_list, a_b_list, float_list=None, tie=False):
     return rank_pred
 
 
-## EVALUATION______________________________________________________-
+## EVALUATION______________________________________________________
 
 
-def inspect(probe, ds, print_res=True, **kwargs):
-    for ranking in ds:
-        y_pred, rank_pred = probe.predict(ranking, return_y=False, **kwargs)
-        rank_pred = rank_pred.detach().numpy()
-        ranked_text = sorted(list(zip(rank_pred, ranking["ents"])), key=lambda x: x[0], reverse=True)
-        if print_res:
-            print(f"{ranking['prompt']}\n {ranked_text}\n")
-
-
-def metric_pairwise(y_true: torch.tensor, y_pred: torch.tensor, print_res=[]):
+def metric_pairwise(y_true: torch.tensor, y_pred: torch.tensor):
+    """
+    evaluation of pairwise comparisons via accuracy
+    """
     if isinstance(y_pred, torch.Tensor):
         y_pred = y_pred.detach().numpy()
     if isinstance(y_true, torch.Tensor):
@@ -69,12 +94,14 @@ def metric_pairwise(y_true: torch.tensor, y_pred: torch.tensor, print_res=[]):
 
     accuracy = accuracy_score(y_true, y_pred)
     results = {"accuracy": round(accuracy,4)}
-    if "per_ranking" in print_res:
-        print(f"pairwise: {results}")
+    print(f"pairwise: {results}")
     return results, y_pred
 
 
 def metric_ranks(ranks_true: torch.tensor, ranks_pred: torch.tensor, print_res=[]):
+    """
+    evaluation of global ranking via kendall correlation
+    """
     if isinstance(ranks_pred, torch.Tensor):
         ranks_pred = ranks_pred.detach().numpy()
     if isinstance(ranks_true, torch.Tensor):
@@ -91,17 +118,19 @@ def metric_ranks(ranks_true: torch.tensor, ranks_pred: torch.tensor, print_res=[
     if math.isnan(kendall):
         kendall = 0.0
     results = {"kendall": round(kendall,4)}
-    if "per_ranking" in print_res:
-        print(f"ranks: {results}")
+    print(f"ranks: {results}")
     return results, ranks_pred
 
 
-def evaluate(probe, ds, return_type=["return_res"], print_res=["all_rankings"], **kwargs):
+def evaluate(probe, ds, return_type=[''], **kwargs):
+    """
+    main evaluation function
+    """
     res_ranks, res_pairs, ranks_preds, y_preds = [], [], [], []
     for ranking in ds:
         rank_pred, y_pred, rank_true, y_true = probe.predict(ranking, return_y=True, **kwargs)
-        res_rank, rank_pred_flipped = metric_ranks(rank_true, rank_pred, print_res)
-        res_y, y_pred_flipped = metric_pairwise(y_true, y_pred, print_res)
+        res_rank, rank_pred_flipped = metric_ranks(rank_true, rank_pred)
+        res_y, y_pred_flipped = metric_pairwise(y_true, y_pred)
         res_ranks.append(list(res_rank.values()))
         res_pairs.append(list(res_y.values()))
         ranks_preds.append(rank_pred_flipped)
@@ -110,8 +139,8 @@ def evaluate(probe, ds, return_type=["return_res"], print_res=["all_rankings"], 
     res_ranks = dict(zip(list(res_rank.keys()), np.stack(res_ranks).mean(-2).round(4)))
     res_pairs = dict(zip(list(res_y.keys()), np.stack(res_pairs).mean(-2).round(4)))
 
-    if "all_rankings" in print_res:
-        print(f"ranks: {res_ranks} \npairwise: {res_pairs}\n")
+    print(f"\n\ntotal______________________________________\n\nranks: {res_ranks} \npairwise: {res_pairs}\n")
+    
     if "return_pred" in return_type:
         return ranks_preds, y_preds
     if "return_res" in return_type:
