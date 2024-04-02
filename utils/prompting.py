@@ -176,7 +176,7 @@ class Prompter():
         # self.model.eval()
         self.x_y = x_y
 
-        assert model.config.architectures[0] in ['GPT2LMHeadModel', 'DebertaForMaskedLM', 'MPTForCausalLM'], "need MLM with decoder or decoder-only model"
+        assert model.config.architectures[0] in ['PhiForCausalLM', 'GPT2LMHeadModel', 'DebertaForMaskedLM', 'MPTForCausalLM'], "need MLM with decoder or decoder-only model"
         print(f"{model.config.architectures[0]}")
 
     def forward_fn(self, batch, ent_idx=None, x_key="x_pred", y_key="y_pred"):

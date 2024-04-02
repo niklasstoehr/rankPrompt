@@ -1,6 +1,8 @@
 # Prompting for Rankings
 _______________________________________________
 
+All code can be executed as a stand-alone in the Jupyter notebook "tutorial.ipynb". The
+
 ## Set-up
 
 ```

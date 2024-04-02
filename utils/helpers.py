@@ -19,10 +19,15 @@ def load_model(model_name:str="gpt2", device:str="cpu"):
     elif model_name == "deberta":
         tokenizer = DebertaTokenizer.from_pretrained("microsoft/deberta-base")
         model = DebertaModel.from_pretrained("microsoft/deberta-base").to(device)
-    
+
+    elif model_name == "phi-2":
+        tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2", trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained("microsoft/phi-2", torch_dtype="auto",trust_remote_code=True).to(device)
+        assert device=="mps" or device=="cuda", "phi-2 does not run on cpu" ##https://huggingface.co/microsoft/phi-2/discussions/14
     elif model_name == "mpt-7b":
         tokenizer = AutoTokenizer.from_pretrained('EleutherAI/gpt-neox-20b', padding_side='left')
         model = AutoModelForCausalLM.from_pretrained('mosaicml/mpt-7b', torch_dtype=torch.float32, trust_remote_code=True).to(device)
+    print(f"loaded {model_name} on {device}")
     return model, tokenizer
 
 
@@ -122,13 +127,13 @@ def metric_ranks(ranks_true: torch.tensor, ranks_pred: torch.tensor, print_res=[
     return results, ranks_pred
 
 
-def evaluate(probe, ds, return_type=[''], **kwargs):
+def evaluate(prompter, ds, return_type=[''], **kwargs):
     """
     main evaluation function
     """
     res_ranks, res_pairs, ranks_preds, y_preds = [], [], [], []
     for ranking in ds:
-        rank_pred, y_pred, rank_true, y_true = probe.predict(ranking, return_y=True, **kwargs)
+        rank_pred, y_pred, rank_true, y_true = prompter.predict(ranking, return_y=True, **kwargs)
         res_rank, rank_pred_flipped = metric_ranks(rank_true, rank_pred)
         res_y, y_pred_flipped = metric_pairwise(y_true, y_pred)
         res_ranks.append(list(res_rank.values()))
